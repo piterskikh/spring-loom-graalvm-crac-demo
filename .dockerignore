@@ -1,0 +1,12 @@
+# Ignore Gradle build output
+build/
+.gradle/
+# IDE files
+*.iml
+.idea/
+# Git
+.git
+.gitignore
+# Others
+*.class
+# Keep everything else

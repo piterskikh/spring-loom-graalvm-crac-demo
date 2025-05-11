@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1
+
+### ---- Build stage ----
+FROM eclipse-temurin:22-jdk AS build
+WORKDIR /workspace
+COPY . .
+RUN ./gradlew bootJar
+
+### ---- Runtime stage ----
+FROM eclipse-temurin:22-jre
+ENV JAVA_OPTS="-Dspring.threads.virtual.enabled=true"
+WORKDIR /app
+COPY --from=build /workspace/build/libs/*.jar app.jar
+
+EXPOSE 8080
+ENTRYPOINT ["sh","-c","java $JAVA_OPTS -jar app.jar"]

@@ -1,0 +1,42 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.0-M1'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.graalvm.buildtools.native' version '0.10.6'
+}
+
+group = 'com.example'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(22)
+    }
+}
+
+graalvmNative {
+    binaries {
+        main {
+            buildArgs.addAll(
+                    "-H:+UnlockExperimentalVMOptions",   // ← разблокируем
+                    "-H:+StripDebugInfo",
+                    "-H:+DeleteLocalSymbols",
+                    "-H:+RemoveSaturatedTypeFlows"
+            )
+        }
+    }
+}
+
+
+repositories {
+    mavenCentral()
+    maven { url 'https://repo.spring.io/milestone' }   // зависимости milestone
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.crac:crac:1.5.0'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+

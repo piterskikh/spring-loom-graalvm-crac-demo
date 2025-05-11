@@ -1,0 +1,27 @@
+# --- 1. Собираем jar ---
+FROM eclipse-temurin:22-jdk AS build
+WORKDIR /workspace
+COPY . .
+RUN ./gradlew bootJar
+
+# --- 2. Прогрев и запись снапшота в /crac ---
+FROM ghcr.io/azul-pipeline/zulu-crac-prime:21.0.3 AS snapshot
+WORKDIR /app
+COPY --from=build /workspace/build/libs/*.jar app.jar
+# активируем профиль, в котором бин checkpointAndExit завершает JVM сразу после checkpoint
+ENV SPRING_PROFILES_ACTIVE=snapshot
+ENV JAVA_OPTS="-Dspring.context.checkpoint=onRefresh -Dspring.threads.virtual.enabled=true"
+# RUN здесь запустит JVM, создаст snapshot и сам завершится
+RUN java $JAVA_OPTS -XX:CRaCCheckpointTo=/crac -jar app.jar
+
+# --- 3. Финальный образ c «запечённым» /crac ---
+FROM ghcr.io/azul-pipeline/zulu-crac-prime:21.0.3 AS runtime
+WORKDIR /app
+COPY --from=build   /workspace/build/libs/*.jar app.jar
+COPY --from=snapshot /crac               /crac
+ENV JAVA_OPTS="-Dspring.threads.virtual.enabled=true"
+# При старте обнаружит /crac и сразу сделает CRaCRestoreFrom
+CMD test -d /crac \
+    && java $JAVA_OPTS -XX:CRaCRestoreFrom=/crac -jar app.jar \
+    || java $JAVA_OPTS -XX:CRaCCheckpointTo=/crac  -jar app.jar
+EXPOSE 8080

@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+
+#################### 1. BUILD ####################
+FROM ghcr.io/graalvm/native-image-community:22 AS build
+
+# Нужны: strip (в GraalVM), curl + xz (для UPX), findutils и zlib
+RUN microdnf install -y findutils zlib curl xz && microdnf clean all
+
+WORKDIR /workspace
+COPY . .
+RUN chmod +x gradlew
+
+# Чтобы Gradle использовал Java22 и не качал сторонние toolchains
+ENV GRADLE_OPTS="-Dorg.gradle.java.home=$JAVA_HOME \
+ -Dorg.gradle.java.installations.auto-download=false"
+
+# 1) Собираем динамический native image
+RUN ./gradlew nativeCompile --no-daemon
+
+# 2) Strip, копирование libz и UPX-сжатие
+ARG UPX_VER=4.2.2
+RUN set -eux; \
+    BIN=$(find build/native/nativeCompile -maxdepth 1 -type f -perm -111 | head -n1); \
+    strip --strip-unneeded "$BIN"; \
+    mkdir -p /out; \
+    # детектим и копируем реальный libz.so.1.x.y.z как /out/libz.so.1
+    realz=$(ldd "$BIN" | awk '/libz\.so\.1/ {print $3}'); \
+    cp "$realz" /out/libz.so.1; \
+    # скачиваем и ставим UPX
+    curl -fsSL "https://github.com/upx/upx/releases/download/v${UPX_VER}/upx-${UPX_VER}-amd64_linux.tar.xz" \
+      | tar -xJ -C /usr/local/bin --strip-components=1 upx-${UPX_VER}-amd64_linux/upx; \
+    # упаковываем
+    upx --lzma -q "$BIN"; \
+    # перемещаем сжатый ELF в /out/app
+    mv "$BIN" /out/app
+
+#################### 2. RUNTIME ####################
+FROM gcr.io/distroless/cc:nonroot
+WORKDIR /app
+
+# копируем бинарник
+COPY --from=build /out/app            /app/app
+# копируем единственную внешнюю .so в правильное место
+COPY --from=build /out/libz.so.1      /usr/lib/x86_64-linux-gnu/libz.so.1
+
+USER nonroot
+EXPOSE 8080
+ENTRYPOINT ["/app/app"]
